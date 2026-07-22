@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { IphoneFrame } from "@/components/iphone-frame";
 import { StatusBar } from "@/components/status-bar";
 import { BottomNav } from "@/components/bottom-nav";
@@ -8,27 +9,71 @@ import { HomeScreen } from "@/components/screens/home";
 import { NutritionScreen } from "@/components/screens/nutrition";
 import { WorkoutScreen } from "@/components/screens/workout";
 import { ProfileScreen } from "@/components/screens/profile";
+import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
+import {
+  clearUserConfig,
+  deriveProfile,
+  getWorkoutPlan,
+  loadUserConfig,
+  saveUserConfig,
+  supplementsAllowed,
+} from "@/lib/user-config";
 import {
   exercises as seedExercises,
   meals,
   userProfile,
   warnings as seedWarnings,
 } from "@/lib/data";
-import type { ScreenId } from "@/types";
+import type { ScreenId, UserConfig } from "@/types";
 
 export default function HomePage() {
+  const [hydrated, setHydrated] = useState(false);
+  const [config, setConfig] = useState<UserConfig | null>(null);
   const [screen, setScreen] = useState<ScreenId>("home");
   const [exercises, setExercises] = useState(seedExercises);
   const [waterMl, setWaterMl] = useState(1800);
   const [dismissed, setDismissed] = useState<string[]>([]);
 
-  const activeWarnings = useMemo(
-    () => seedWarnings.filter((w) => !dismissed.includes(w.id)),
-    [dismissed],
+  useEffect(() => {
+    setConfig(loadUserConfig());
+    setHydrated(true);
+  }, []);
+
+  // La UI se dessine en lisant le UserConfig.
+  const profile = useMemo(
+    () => (config ? deriveProfile(userProfile, config) : userProfile),
+    [config],
   );
+
+  const activeWarnings = useMemo(
+    () =>
+      seedWarnings.filter((w) => {
+        if (dismissed.includes(w.id)) return false;
+        // stance 'against' → aucun contenu compléments, alertes incluses.
+        if (w.id === "w1" && !supplementsAllowed(config)) return false;
+        return true;
+      }),
+    [dismissed, config],
+  );
+
+  const handleOnboardingComplete = (c: UserConfig) => {
+    saveUserConfig(c);
+    setConfig(c);
+    setExercises(getWorkoutPlan(c.objectif).exercises);
+    setScreen("home");
+  };
+
+  const handleReset = () => {
+    clearUserConfig();
+    setConfig(null);
+    setExercises(seedExercises);
+    setDismissed([]);
+  };
 
   const toggleExercise = (id: string) =>
     setExercises((prev) => prev.map((e) => (e.id === id ? { ...e, done: !e.done } : e)));
+
+  const showOnboarding = hydrated && !config;
 
   return (
     <main className="min-h-screen w-full flex items-center justify-center relative overflow-hidden bg-[#e8dfc4]">
@@ -50,41 +95,60 @@ export default function HomePage() {
       </aside>
 
       <IphoneFrame>
-        <StatusBar tone="light" />
+        <StatusBar tone={showOnboarding ? "dark" : "light"} />
 
-        <div className="absolute inset-0 pt-9">
-          {screen === "home" && (
-            <HomeScreen
-              profile={userProfile}
-              meals={meals}
-              waterMl={waterMl}
-              onAddWater={() => setWaterMl((v) => Math.min(userProfile.targetWaterMl, v + 250))}
-              warnings={activeWarnings}
-              onDismissWarning={(id) => setDismissed((d) => [...d, id])}
-            />
-          )}
-          {screen === "nutrition" && (
-            <NutritionScreen profile={userProfile} meals={meals} />
-          )}
-          {screen === "workout" && (
-            <WorkoutScreen profile={userProfile} exercises={exercises} onToggle={toggleExercise} />
-          )}
-          {screen === "profile" && <ProfileScreen profile={userProfile} />}
-        </div>
+        {!hydrated ? null : showOnboarding ? (
+          <OnboardingFlow onComplete={handleOnboardingComplete} />
+        ) : (
+          <>
+            <div className="absolute inset-0 pt-9">
+              {screen === "home" && (
+                <HomeScreen
+                  profile={profile}
+                  config={config}
+                  meals={meals}
+                  waterMl={waterMl}
+                  onAddWater={() => setWaterMl((v) => Math.min(profile.targetWaterMl, v + 250))}
+                  warnings={activeWarnings}
+                  onDismissWarning={(id) => setDismissed((d) => [...d, id])}
+                />
+              )}
+              {screen === "nutrition" && (
+                <NutritionScreen profile={profile} meals={meals} />
+              )}
+              {screen === "workout" && (
+                <WorkoutScreen profile={profile} exercises={exercises} onToggle={toggleExercise} />
+              )}
+              {screen === "profile" && <ProfileScreen profile={profile} />}
+            </div>
 
-        <BottomNav active={screen} onChange={setScreen} />
+            <BottomNav active={screen} onChange={setScreen} />
+          </>
+        )}
       </IphoneFrame>
 
       {/* Right meta */}
-      <aside className="hidden xl:flex flex-col items-start ml-16 max-w-xs relative z-10">
+      <aside className="hidden xl:flex flex-col items-start ml-16 max-w-xs relative z-10 gap-3">
         <div className="rounded-2xl bg-[var(--color-parchment)]/70 backdrop-blur px-4 py-3 border border-[var(--color-forest)]/15 shadow-sm">
           <p className="text-[11px] uppercase tracking-wider text-[var(--color-forest)]/70 font-bold">
             Aperçu produit
           </p>
           <p className="text-[13px] text-[var(--color-ink-soft)] mt-1 leading-snug max-w-[240px]">
-            Prototype interactif — naviguez entre les écrans via la barre du bas.
+            {showOnboarding
+              ? "Onboarding hyper-personnalisé — vos réponses configurent la UI du dashboard."
+              : "Prototype interactif — naviguez entre les écrans via la barre du bas."}
           </p>
         </div>
+        {config ? (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="flex items-center gap-2 rounded-2xl bg-[var(--color-parchment)]/70 backdrop-blur px-4 py-2.5 border border-[var(--color-forest)]/15 shadow-sm text-[12px] font-semibold text-[var(--color-forest)] hover:bg-[var(--color-parchment)] transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" strokeWidth={2.5} />
+            Rejouer l&apos;onboarding
+          </button>
+        ) : null}
       </aside>
     </main>
   );

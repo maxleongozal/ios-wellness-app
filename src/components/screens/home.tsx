@@ -1,18 +1,80 @@
 "use client";
 
-import { ChevronRight, Dumbbell, Droplets, Flame, HeartPulse } from "lucide-react";
-import type { Meal, UserProfile, Warning } from "@/types";
+import { useState } from "react";
+import { Check, ChevronRight, Dumbbell, Droplets, Flame, HeartPulse, Pill } from "lucide-react";
+import type { Meal, UserConfig, UserProfile, Warning } from "@/types";
 import { ScreenHeader } from "@/components/screen-header";
 import { WarningBanner } from "@/components/warning-banner";
 import { cn } from "@/lib/utils";
 
 interface HomeScreenProps {
   profile: UserProfile;
+  config?: UserConfig | null;
   meals: Meal[];
   waterMl: number;
   onAddWater: () => void;
   warnings: Warning[];
   onDismissWarning: (id: string) => void;
+}
+
+const SUPPLEMENTS = [
+  { id: "s1", name: "Créatine", dose: "5 g" },
+  { id: "s2", name: "Whey", dose: "30 g" },
+  { id: "s3", name: "Oméga-3", dose: "1 gélule" },
+];
+
+function SupplementsCard() {
+  const [taken, setTaken] = useState<string[]>(["s1"]);
+  const toggle = (id: string) =>
+    setTaken((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+
+  return (
+    <div className="bg-[var(--color-parchment)] rounded-2xl p-4 border border-[var(--color-forest)]/10">
+      <div className="flex items-center justify-between">
+        <p className="text-[14px] font-extrabold text-[var(--color-forest-dark)]">
+          Suivi des compléments
+        </p>
+        <Pill className="w-4 h-4 text-[var(--color-forest)]" strokeWidth={2.4} />
+      </div>
+      <ul className="mt-3 space-y-2">
+        {SUPPLEMENTS.map((s) => {
+          const done = taken.includes(s.id);
+          return (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => toggle(s.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-xl px-3 py-2 transition-colors text-left",
+                  done ? "bg-[var(--color-forest)]/10" : "bg-white/60",
+                )}
+              >
+                <span
+                  className={cn(
+                    "w-6 h-6 rounded-full flex items-center justify-center border-2 shrink-0 transition-colors",
+                    done
+                      ? "bg-[var(--color-forest)] border-[var(--color-forest)] text-white"
+                      : "border-[var(--color-forest)]/30 text-transparent",
+                  )}
+                >
+                  <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                </span>
+                <span
+                  className={cn(
+                    "text-[12.5px] font-semibold text-[var(--color-ink)]",
+                    done && "line-through opacity-60",
+                  )}
+                >
+                  {s.name}
+                </span>
+                <span className="ml-auto text-[10.5px] text-[var(--color-muted)]">{s.dose}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function MacroDot({
@@ -58,12 +120,14 @@ function MacroDot({
 
 export function HomeScreen({
   profile,
+  config,
   meals,
   waterMl,
   onAddWater,
   warnings,
   onDismissWarning,
 }: HomeScreenProps) {
+  const showSupplements = config?.uiTheme.visibleModules.includes("suivi_supplements") ?? false;
   const consumedCalories = meals.reduce((sum, m) => sum + m.calories, 0);
   const consumedMacros = meals.reduce(
     (acc, m) => ({
@@ -199,6 +263,8 @@ export function HomeScreen({
             </button>
           </div>
         </div>
+
+        {showSupplements ? <SupplementsCard /> : null}
 
         {/* Bien-être */}
         <button

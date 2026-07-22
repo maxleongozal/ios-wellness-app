@@ -1,5 +1,41 @@
 export type ScreenId = "home" | "nutrition" | "workout" | "profile";
 
+/* ---------- Onboarding / moteur de personnalisation ---------- */
+
+export type Biologie = "homme" | "femme";
+export type Objectif = "perte_poids" | "prise_masse" | "endurance" | "bien_etre";
+export type StanceSupplements = "open" | "against" | "hesitant";
+export type DietType = "standard" | "vegan" | "keto";
+
+export type ModuleId =
+  | "dashboard"
+  | "sport"
+  | "nutrition"
+  | "hydratation"
+  | "bien_etre"
+  | "suivi_supplements";
+
+export interface UiTheme {
+  accentColor: string;
+  visibleModules: ModuleId[];
+}
+
+export interface UserConfig {
+  userName: string;
+  biologie: Biologie;
+  objectif: Objectif;
+  stanceSupplements: StanceSupplements;
+  dietType: DietType;
+  uiTheme: UiTheme;
+}
+
+export interface OnboardingAnswers {
+  userName: string;
+  biologie: Biologie | null;
+  objectif: Objectif | null;
+  stanceSupplements: StanceSupplements | null;
+}
+
 export type MealCategory = "petit-dejeuner" | "dejeuner" | "diner" | "snacks";
 
 export interface Macros {
