@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  /* Wellness palette — cream + forest green */
+  --color-cream: #f2ecd9;
+  --color-cream-soft: #f8f3e2;
+  --color-parchment: #fbf7ea;
+  --color-forest: #1f5b47;
+  --color-forest-dark: #163f31;
+  --color-forest-deep: #0f2e23;
+  --color-moss: #2d7a5f;
+  --color-sage: #4a9977;
+  --color-ink: #1a2b23;
+  --color-ink-soft: #3a4b43;
+  --color-muted: #7a8b82;
+  --color-macro-p: #d94e3a;
+  --color-macro-g: #4a9977;
+  --color-macro-l: #e58a2b;
+  --color-warn: #d1462f;
+  --color-warn-bg: #ffe1d4;
+  --color-warn-border: #f4a58f;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: #e8dfc4;
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.7; }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 6s ease-in-out infinite;
+}

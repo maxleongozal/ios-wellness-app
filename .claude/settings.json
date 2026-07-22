@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm run lint)",
+      "Bash(npm run start)",
+      "Bash(npm ci)",
+      "Bash(npx tsc:*)",
+      "Bash(rm -rf node_modules)",
+      "Bash(rm -rf .next)"
+    ]
+  }
+}
