@@ -1,16 +1,17 @@
-import type { Objectif, UserConfig } from "@/types";
+import type { UserConfig } from "@/types";
 import { computeMetabolics, type MetabolicProfile } from "@/lib/metabolic-engine";
 import {
   CREATINE_SAFE_MAX_G,
-  FIBER_TARGET_G,
   type DailyIntake,
 } from "@/lib/health-guardian";
 
 /* ------------------------------------------------------------------ */
-/* Moteur de dialogue du Dr. Sane : choisit le message le plus        */
-/* pertinent à partir du UserConfig et du journal du jour.            */
-/* Les règles miroir du Gardien de Santé partagent ses seuils —       */
-/* le médecin et les bannières ne se contredisent jamais.             */
+/* Alertes de SÉCURITÉ du Dr. Sane : les règles miroir du Gardien de  */
+/* Santé partagent ses seuils — le médecin et les bannières ne se     */
+/* contredisent jamais. Ces messages sont hors quota : contrairement  */
+/* aux interventions contextuelles (lib/doctor-interventions), une    */
+/* alerte de sécurité n'est jamais supprimée par un plafond de        */
+/* fréquence.                                                         */
 /* ------------------------------------------------------------------ */
 
 export type DoctorSeverity = "info" | "warning" | "danger";
@@ -21,23 +22,16 @@ export interface DoctorAdvice {
   message: string;
 }
 
-/** Conseil du jour par défaut, adapté à l'objectif choisi à l'onboarding. */
-const ADVICE_BY_OBJECTIF: Record<Objectif, string> = {
-  perte_poids:
-    "Ton déficit est calibré pour préserver ton muscle. Priorité du jour : des protéines à chaque repas et une bonne hydratation.",
-  prise_masse:
-    "Un léger surplus suffit pour construire du muscle. Mange régulièrement et soigne ton sommeil — c'est là que tu progresses vraiment.",
-  endurance:
-    "Pense à tes glucides autour de la séance et bois régulièrement : c'est le carburant de ton endurance.",
-  bien_etre:
-    "La régularité prime sur l'intensité. Bouge un peu chaque jour, hydrate-toi et écoute tes signaux de faim.",
-};
-
 /**
- * Renvoie le message exact et la sévérité de l'intervention du médecin
- * sur le Dashboard. Une seule intervention à la fois : la plus grave prime.
+ * Renvoie l'alerte de sécurité du médecin sur le Dashboard, ou null si
+ * la journée ne présente aucun risque. Une seule à la fois : la plus
+ * grave prime. Le reste de la parole du Dr Sane passe par le moteur
+ * d'interventions contextuelles.
  */
-export function getDoctorAdvice(config: UserConfig, dailyLog: DailyIntake): DoctorAdvice {
+export function getDoctorSafetyAlert(
+  config: UserConfig,
+  dailyLog: DailyIntake,
+): DoctorAdvice | null {
   const m = computeMetabolics(config);
 
   // Excès de créatine — uniquement si l'utilisateur suit ce complément.
@@ -61,21 +55,7 @@ export function getDoctorAdvice(config: UserConfig, dailyLog: DailyIntake): Doct
     };
   }
 
-  // Manque de fibres / micronutriments.
-  if (dailyLog.fiberG < FIBER_TARGET_G) {
-    return {
-      id: "doc-fibres",
-      severity: "warning",
-      message: `N'oublie pas tes micronutriments ! Tes macros sont bonnes, mais il te manque ${FIBER_TARGET_G - dailyLog.fiberG} g de fibres aujourd'hui. Légumes, fruits et légumineuses sont tes alliés.`,
-    };
-  }
-
-  // Rien à signaler : conseil du jour selon l'objectif.
-  return {
-    id: "doc-conseil",
-    severity: "info",
-    message: ADVICE_BY_OBJECTIF[config.objectif],
-  };
+  return null;
 }
 
 /* --------------------- Pédagogie de l'onboarding ------------------- */

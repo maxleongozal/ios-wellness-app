@@ -20,8 +20,18 @@ import {
 import { computeMetabolics } from "@/lib/metabolic-engine";
 import { evaluateDailyWarnings } from "@/lib/health-guardian";
 import { behaviorDaysFromGamification, detectBehaviorSignals } from "@/lib/safety";
-import { loadGamificationState } from "@/lib/gamification";
-import { getDoctorAdvice } from "@/lib/doctor-engine";
+import { getWeekProgress, loadGamificationState } from "@/lib/gamification";
+import { getDoctorSafetyAlert } from "@/lib/doctor-engine";
+import {
+  consecutiveTrackedDays,
+  consecutiveTrainingDays,
+  daysSinceLastWorkout,
+  loadInterventionHistory,
+  recordShown,
+  resetInterventionHistory,
+  saveInterventionHistory,
+  selectIntervention,
+} from "@/lib/doctor-interventions";
 import { dailyTracking, exercises as seedExercises, meals, userProfile } from "@/lib/data";
 import type { ScreenId, UserConfig } from "@/types";
 
@@ -44,11 +54,16 @@ export default function HomePage() {
     [config],
   );
 
-  // Warnings quotidiens (Gardien de Santé) + intervention du Dr. Sane :
-  // tous deux lisent le même journal du jour, ils ne se contredisent jamais.
-  const { activeWarnings, doctorAdvice } = useMemo(() => {
-    if (!config) return { activeWarnings: [], doctorAdvice: null };
+  // Warnings quotidiens (Gardien de Santé) + parole du Dr. Sane :
+  // tous lisent le même journal du jour, ils ne se contredisent jamais.
+  // Le médecin a deux registres : l'alerte de sécurité (hors quota) et
+  // l'intervention contextuelle (une à la fois, plafonnée en fréquence).
+  const { activeWarnings, doctorAdvice, doctorIntervention } = useMemo(() => {
+    if (!config) return { activeWarnings: [], doctorAdvice: null, doctorIntervention: null };
+    const now = new Date();
+    const today = now.toLocaleDateString("sv-SE");
     const metabolics = computeMetabolics(config);
+    const gamification = loadGamificationState();
     const dailyLog = {
       caloriesConsumed: meals.reduce((sum, m) => sum + m.calories, 0),
       fiberG: dailyTracking.fiberG,
@@ -59,17 +74,70 @@ export default function HomePage() {
     // Veille comportementale (safety/behavior-watch) : interventions
     // explicatives du Dr Sane, affichées comme les autres warnings.
     const behaviorWarnings = detectBehaviorSignals({
-      days: behaviorDaysFromGamification(loadGamificationState()),
-      today: new Date().toLocaleDateString("sv-SE"),
+      days: behaviorDaysFromGamification(gamification),
+      today,
     }).map((i) => ({ id: i.id, title: i.title, message: i.message, severity: i.severity }));
+
+    const safetyAlert = getDoctorSafetyAlert(config, dailyLog);
+    const week = getWeekProgress(gamification, today);
+    // Une alerte de sécurité occupe la bulle : pas d'intervention en plus.
+    const intervention = safetyAlert
+      ? null
+      : selectIntervention(
+          {
+            today,
+            hour: now.getHours(),
+            config,
+            targets: {
+              calories: metabolics.targetCalories,
+              waterMl: metabolics.waterMl,
+              proteinG: metabolics.macros.protein,
+            },
+            workoutTitle: profile.workoutTitle,
+            day: {
+              mealsLogged: meals.length,
+              caloriesConsumed: dailyLog.caloriesConsumed,
+              fiberG: dailyLog.fiberG,
+              waterMl,
+              workoutDone: exercises.length > 0 && exercises.every((e) => e.done),
+            },
+            week: { activeDays: week.activeDays, targetDays: week.targetDays },
+            consecutiveTrainingDays: consecutiveTrainingDays(gamification, today),
+            consecutiveTrackedDays: consecutiveTrackedDays(gamification, today),
+            daysSinceLastWorkout: daysSinceLastWorkout(gamification, today),
+            weight: {
+              startKg: profile.weightStart,
+              currentKg: profile.weightCurrent,
+              goalKg: profile.weightGoal,
+            },
+            // Pas encore journalisés dans le prototype : les situations
+            // correspondantes restent silencieuses (convention null).
+            yesterdayCalories: null,
+            lastWeighInDate: null,
+          },
+          loadInterventionHistory(),
+        );
+
     return {
       activeWarnings: [
         ...evaluateDailyWarnings(config, metabolics, dailyLog),
         ...behaviorWarnings,
       ].filter((w) => !dismissed.includes(w.id)),
-      doctorAdvice: getDoctorAdvice(config, dailyLog),
+      doctorAdvice: safetyAlert,
+      doctorIntervention: intervention,
     };
-  }, [config, waterMl, dismissed]);
+  }, [config, waterMl, dismissed, exercises, profile]);
+
+  // L'affichage compte dans les plafonds de fréquence (2/jour, pas de
+  // répétition dans la semaine). recordShown est idempotent : les
+  // re-rendus d'une même journée n'entament pas le quota.
+  useEffect(() => {
+    if (!doctorIntervention) return;
+    const today = new Date().toLocaleDateString("sv-SE");
+    saveInterventionHistory(
+      recordShown(loadInterventionHistory(), doctorIntervention, today),
+    );
+  }, [doctorIntervention]);
 
   const handleOnboardingComplete = (c: UserConfig) => {
     saveUserConfig(c);
@@ -80,6 +148,9 @@ export default function HomePage() {
 
   const handleReset = () => {
     clearUserConfig();
+    // Les plafonds de fréquence appartiennent à l'« utilisateur » :
+    // rejouer l'onboarding repart d'une conversation vierge.
+    resetInterventionHistory();
     setConfig(null);
     setExercises(seedExercises);
     setDismissed([]);
@@ -127,6 +198,8 @@ export default function HomePage() {
                   warnings={activeWarnings}
                   onDismissWarning={(id) => setDismissed((d) => [...d, id])}
                   doctorAdvice={doctorAdvice}
+                  doctorIntervention={doctorIntervention}
+                  onNavigate={setScreen}
                 />
               )}
               {screen === "nutrition" && (

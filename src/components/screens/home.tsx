@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { Check, ChevronRight, Dumbbell, Droplets, Flame, HeartPulse, Pill, Stethoscope } from "lucide-react";
-import type { Meal, SupplementId, UserConfig, UserProfile, Warning } from "@/types";
+import type { Meal, ScreenId, SupplementId, UserConfig, UserProfile, Warning } from "@/types";
 import type { DoctorAdvice } from "@/lib/doctor-engine";
+import type { DoctorIntervention } from "@/lib/doctor-interventions";
 import { getSupplement } from "@/lib/supplements";
 import { ScreenHeader } from "@/components/screen-header";
 import { WarningBanner } from "@/components/warning-banner";
@@ -18,10 +19,22 @@ interface HomeScreenProps {
   onAddWater: () => void;
   warnings: Warning[];
   onDismissWarning: (id: string) => void;
+  /** Alerte de sécurité — hors quota, prime sur l'intervention. */
   doctorAdvice?: DoctorAdvice | null;
+  /** Intervention contextuelle sélectionnée par le moteur (une seule). */
+  doctorIntervention?: DoctorIntervention | null;
+  onNavigate?: (screen: ScreenId) => void;
 }
 
-function DoctorWidget({ advice }: { advice: DoctorAdvice }) {
+function DoctorWidget({
+  advice,
+  intervention,
+  onNavigate,
+}: {
+  advice?: DoctorAdvice | null;
+  intervention?: DoctorIntervention | null;
+  onNavigate?: (screen: ScreenId) => void;
+}) {
   return (
     <div className="bg-[var(--color-parchment)] rounded-2xl p-4 border border-[var(--color-forest)]/10">
       <div className="flex items-center justify-between">
@@ -30,7 +43,23 @@ function DoctorWidget({ advice }: { advice: DoctorAdvice }) {
         </p>
         <Stethoscope className="w-4 h-4 text-[var(--color-forest)]" strokeWidth={2.4} />
       </div>
-      <DoctorAvatar className="mt-3" message={advice.message} severity={advice.severity} />
+      {advice ? (
+        <DoctorAvatar className="mt-3" message={advice.message} severity={advice.severity} />
+      ) : intervention ? (
+        <DoctorAvatar
+          className="mt-3"
+          message={intervention.message}
+          tone={intervention.tone}
+          cta={
+            intervention.cta && onNavigate
+              ? {
+                  label: intervention.cta.label,
+                  onClick: () => onNavigate(intervention.cta!.screen),
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -141,6 +170,8 @@ export function HomeScreen({
   warnings,
   onDismissWarning,
   doctorAdvice,
+  doctorIntervention,
+  onNavigate,
 }: HomeScreenProps) {
   const showSupplements = config?.uiTheme.visibleModules.includes("suivi_supplements") ?? false;
   const consumedCalories = meals.reduce((sum, m) => sum + m.calories, 0);
@@ -161,7 +192,14 @@ export function HomeScreen({
       <ScreenHeader greeting={`Bonjour ${profile.name} !`} />
 
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-3">
-        {doctorAdvice ? <DoctorWidget advice={doctorAdvice} /> : null}
+        {/* Le médecin ne parle que s'il a quelque chose de pertinent à dire. */}
+        {doctorAdvice || doctorIntervention ? (
+          <DoctorWidget
+            advice={doctorAdvice}
+            intervention={doctorIntervention}
+            onNavigate={onNavigate}
+          />
+        ) : null}
 
         {warnings.slice(0, 2).map((w) => (
           <WarningBanner key={w.id} warning={w} onDismiss={onDismissWarning} />
