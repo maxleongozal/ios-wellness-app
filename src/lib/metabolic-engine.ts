@@ -1,8 +1,10 @@
-import type { ActivityLevel, Biologie, Macros, Objectif, UserConfig } from "@/types";
+import type { ActivityLevel, Macros, Objectif, UserConfig } from "@/types";
+import { SAFETY_CONFIG } from "@/lib/safety/config";
 
 /* ------------------------------------------------------------------ */
 /* Moteur de calcul physiologique — Mifflin-St Jeor + garde-fous.     */
-/* Aucun chiffre arbitraire : tout découle des données d'onboarding.  */
+/* Aucun chiffre arbitraire : tout découle des données d'onboarding,  */
+/* et tous les seuils de sécurité viennent de safety/config.ts.       */
 /* ------------------------------------------------------------------ */
 
 export interface MetabolicProfile {
@@ -32,11 +34,6 @@ const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
   leger: 1.375,
   modere: 1.55,
   tres_actif: 1.725,
-};
-
-const ABSOLUTE_FLOOR_KCAL: Record<Biologie, number> = {
-  homme: 1500,
-  femme: 1200,
 };
 
 // 1.6 à 2.2 g/kg selon l'objectif (préservation musculaire maximale en déficit).
@@ -69,17 +66,26 @@ export function computeMetabolics(c: MetabolicInput): MetabolicProfile {
   const activityFactor = ACTIVITY_FACTORS[c.activityLevel];
   const tdee = Math.round(mb * activityFactor);
 
-  // Déficit progressif sain de 15-20 % ; un historique de régimes restrictifs
-  // impose la borne douce. Surplus maîtrisé de 10-15 % selon le volume d'entraînement.
+  // Déficit progressif sain ; un historique de régimes restrictifs impose la
+  // borne douce, et aucun déficit n'est généré avant l'âge adulte (corps en
+  // croissance — voir safety/config.ts). Surplus maîtrisé selon l'entraînement.
+  const { calories, body } = SAFETY_CONFIG;
   let adjustmentPct = 0;
-  if (c.objectif === "perte_poids") {
-    adjustmentPct = c.restrictiveDietHistory ? -0.15 : -0.2;
+  if (c.objectif === "perte_poids" && c.age >= body.adultAge) {
+    adjustmentPct = c.restrictiveDietHistory
+      ? -calories.deficitRestrictiveHistoryPct
+      : -calories.deficitMaxPct;
   } else if (c.objectif === "prise_masse") {
     adjustmentPct =
-      c.activityLevel === "modere" || c.activityLevel === "tres_actif" ? 0.15 : 0.1;
+      c.activityLevel === "modere" || c.activityLevel === "tres_actif"
+        ? calories.surplusActivePct
+        : calories.surplusModestPct;
   }
 
-  const calorieFloor = Math.max(mb, ABSOLUTE_FLOOR_KCAL[c.biologie]);
+  const calorieFloor = Math.max(
+    calories.floorAtBasalMetabolism ? mb : 0,
+    calories.absoluteFloorKcal[c.biologie],
+  );
   const rawTarget = Math.round(tdee * (1 + adjustmentPct));
   const targetCalories = Math.max(rawTarget, calorieFloor);
   const floorApplied = targetCalories > rawTarget;

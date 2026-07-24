@@ -1,14 +1,18 @@
 "use client";
 
-import { Flame, Ruler, Target, Trophy } from "lucide-react";
-import type { UserProfile } from "@/types";
+import { useState } from "react";
+import { ChevronRight, Flame, Ruler, ShieldCheck, Target, Trophy } from "lucide-react";
+import type { UserConfig, UserProfile } from "@/types";
 import { ScreenHeader } from "@/components/screen-header";
+import { SafetyLimitsSheet } from "@/components/screens/safety-limits";
 
 interface ProfileScreenProps {
   profile: UserProfile;
+  config: UserConfig | null;
 }
 
-export function ProfileScreen({ profile }: ProfileScreenProps) {
+export function ProfileScreen({ profile, config }: ProfileScreenProps) {
+  const [showLimits, setShowLimits] = useState(false);
   const lost = Math.max(0, profile.weightStart - profile.weightCurrent);
   const totalToLose = Math.max(0.1, profile.weightStart - profile.weightGoal);
   const pct = Math.min(1, lost / totalToLose);
@@ -106,6 +110,28 @@ export function ProfileScreen({ profile }: ProfileScreenProps) {
           </ul>
         </div>
 
+        {/* Limites de sécurité — les seuils qui s'appliquent à ce profil */}
+        {config ? (
+          <button
+            type="button"
+            onClick={() => setShowLimits(true)}
+            className="w-full bg-[var(--color-parchment)] rounded-2xl p-4 border border-[var(--color-forest)]/10 flex items-center gap-3 text-left active:scale-[0.98] transition-transform"
+          >
+            <span className="w-11 h-11 rounded-2xl bg-[var(--color-forest)]/10 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-[var(--color-forest)]" strokeWidth={2.4} />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[14px] font-extrabold text-[var(--color-forest-dark)]">
+                Mes limites de sécurité
+              </span>
+              <span className="block text-[11px] text-[var(--color-muted)] mt-0.5">
+                Les seuils qui te protègent, et d&apos;où ils viennent
+              </span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-[var(--color-muted)] shrink-0" strokeWidth={2.6} />
+          </button>
+        ) : null}
+
         {/* Achievements */}
         <div className="bg-[var(--color-forest)] rounded-2xl p-4 text-white flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center">
@@ -120,6 +146,10 @@ export function ProfileScreen({ profile }: ProfileScreenProps) {
           <Ruler className="w-4 h-4 opacity-70" />
         </div>
       </div>
+
+      {showLimits && config ? (
+        <SafetyLimitsSheet config={config} onClose={() => setShowLimits(false)} />
+      ) : null}
     </div>
   );
 }

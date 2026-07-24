@@ -50,16 +50,12 @@ import {
   isGoalWeightRealistic,
 } from "@/lib/user-config";
 import { computeMetabolics, describeAdjustment } from "@/lib/metabolic-engine";
-import {
-  HEALTHY_LOSS_KG_PER_WEEK,
-  MAX_LOSS_KG_PER_WEEK,
-  PLAN_WEEKS_MAX,
-  PLAN_WEEKS_MIN,
-  assessGoalPace,
-} from "@/lib/health-guardian";
+import { SAFETY_CONFIG, validateGoal } from "@/lib/safety";
 import { getCalorieEducation, getSupplementEducation } from "@/lib/doctor-engine";
 import { DoctorAvatar } from "@/components/doctor-avatar";
 import { cn } from "@/lib/utils";
+
+const { planWeeksMin: PLAN_WEEKS_MIN, planWeeksMax: PLAN_WEEKS_MAX } = SAFETY_CONFIG.pace;
 
 type Step =
   | "welcome"
@@ -322,14 +318,28 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     [step, answers],
   );
 
-  // Gardien de Santé : durée du plan et rythme induit.
-  const defaultWeeks = assessGoalPace(answers.weightKg, goalKg, 1).recommendedWeeks;
+  // Garde-fou des objectifs : rythme induit, plancher IMC, mineurs.
+  const goalInput = {
+    biologie: answers.biologie ?? "homme",
+    age: answers.age,
+    heightCm: answers.heightCm,
+    weightKg: answers.weightKg,
+    weightGoalKg: goalKg,
+  };
+  const defaultWeeks = validateGoal({ ...goalInput, targetWeeks: 1 }).recommendedWeeks;
   const weeksValue = answers.targetWeeks ?? defaultWeeks;
-  const pace = assessGoalPace(answers.weightKg, goalKg, weeksValue);
+  const assessment = validateGoal({ ...goalInput, targetWeeks: weeksValue });
+  const guardKind = assessment.intervention?.kind ?? null;
+  const paceAlert = guardKind === "rythme_perte" || guardKind === "rythme_prise";
 
   const next = () => {
-    // Interception : une perte > 1 kg/semaine déclenche l'écran du Gardien.
-    if (step === "delai" && pace.dangerous) {
+    // Interception du Gardien : les règles dures (plancher IMC, mineur)
+    // bloquent dès le poids cible, le rythme se joue à l'étape du délai.
+    if (step === "poids_cible" && (guardKind === "plancher_imc" || guardKind === "mineur_deficit")) {
+      setShowGuardian(true);
+      return;
+    }
+    if (step === "delai" && paceAlert) {
       setShowGuardian(true);
       return;
     }
@@ -337,9 +347,25 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   };
   const back = () => setStep(steps[Math.max(stepIndex - 1, 0)]);
 
-  const acceptGuardianAdjustment = () => {
-    setAnswers((a) => ({ ...a, targetWeeks: pace.recommendedWeeks }));
+  // Applique d'un geste la proposition du Dr Sane, selon la règle déclenchée.
+  const acceptGuardianProposal = () => {
     setShowGuardian(false);
+    if (guardKind === "mineur_deficit") {
+      setAnswers((a) => ({ ...a, weightGoalKg: a.weightKg, targetWeeks: null }));
+      // Le delta devient nul : l'étape "delai" disparaît du parcours.
+      setStep("activite");
+      return;
+    }
+    if (guardKind === "plancher_imc") {
+      setAnswers((a) => ({
+        ...a,
+        weightGoalKg: assessment.safeGoalKg,
+        targetWeeks: assessment.recommendedWeeks,
+      }));
+      setStep(Math.abs(assessment.safeGoalKg - answers.weightKg) >= 0.5 ? "delai" : "activite");
+      return;
+    }
+    setAnswers((a) => ({ ...a, targetWeeks: assessment.recommendedWeeks }));
     setStep(steps[Math.min(stepIndex + 1, steps.length - 1)]);
   };
   const goalMismatch =
@@ -359,53 +385,68 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     (step === "regimes" && answers.restrictiveDietHistory !== null) ||
     (step === "supplements" && answers.acceptedSupplements !== null);
 
-  // Écran d'alerte bienveillant du Gardien de Santé — remplace tout le contenu.
-  if (showGuardian) {
+  // Écran d'alerte bienveillant du Gardien de Santé — remplace tout le
+  // contenu. Générique : titre, explication et proposition viennent de
+  // l'intervention produite par safety/goal-guard.
+  if (showGuardian && assessment.intervention) {
+    const intervention = assessment.intervention;
     return (
       <div className="absolute inset-0 pt-9 flex flex-col bg-[var(--color-cream)]">
-        <div className="animate-fade-in flex-1 flex flex-col items-center justify-center text-center px-7">
-          <div className="w-20 h-20 rounded-full bg-[var(--color-warn-bg)] border-2 border-[var(--color-warn-border)] flex items-center justify-center">
+        <div className="animate-fade-in flex-1 flex flex-col items-center justify-center text-center px-7 overflow-y-auto">
+          <div className="w-20 h-20 rounded-full bg-[var(--color-warn-bg)] border-2 border-[var(--color-warn-border)] flex items-center justify-center shrink-0">
             <HeartPulse className="w-10 h-10 text-[var(--color-warn)]" strokeWidth={2.2} />
           </div>
           <h2 className="mt-6 text-[24px] font-extrabold text-[var(--color-forest-deep)] leading-tight tracking-tight">
-            Ralentissons un peu
+            {intervention.title}
           </h2>
-          <p className="mt-3 text-[13.5px] text-[var(--color-ink-soft)] leading-relaxed">
-            Attention : une perte de poids trop rapide nuit à ta santé, ton métabolisme
-            et tes muscles.
-          </p>
-          <div className="mt-5 w-full bg-white rounded-2xl border-2 border-black/[0.06] p-4 text-left space-y-2">
-            <div className="flex justify-between text-[12.5px]">
-              <span className="text-[var(--color-ink-soft)]">Ton plan actuel</span>
-              <span className="font-bold text-[var(--color-warn)] tabular-nums">
-                {Math.abs(goalDeltaKg).toLocaleString("fr-FR")} kg en {weeksValue} sem ·{" "}
-                {pace.ratePerWeek.toLocaleString("fr-FR")} kg/sem
-              </span>
+
+          {paceAlert ? (
+            <div className="mt-5 w-full bg-white rounded-2xl border-2 border-black/[0.06] p-4 text-left space-y-2">
+              <div className="flex justify-between text-[12.5px]">
+                <span className="text-[var(--color-ink-soft)]">Ton plan actuel</span>
+                <span className="font-bold text-[var(--color-warn)] tabular-nums">
+                  {Math.abs(goalDeltaKg).toLocaleString("fr-FR")} kg en {weeksValue} sem ·{" "}
+                  {assessment.rateKgPerWeek.toLocaleString("fr-FR")} kg/sem
+                </span>
+              </div>
+              <div className="flex justify-between text-[12.5px]">
+                <span className="text-[var(--color-ink-soft)]">Seuil pour ton profil</span>
+                <span className="font-bold text-[var(--color-forest)]">
+                  {assessment.maxRateKgPerWeek.toLocaleString("fr-FR")} kg/sem maximum
+                </span>
+              </div>
             </div>
-            <div className="flex justify-between text-[12.5px]">
-              <span className="text-[var(--color-ink-soft)]">Rythme sain</span>
-              <span className="font-bold text-[var(--color-forest)]">
-                {MAX_LOSS_KG_PER_WEEK} kg/sem maximum
-              </span>
+          ) : guardKind === "plancher_imc" ? (
+            <div className="mt-5 w-full bg-white rounded-2xl border-2 border-black/[0.06] p-4 text-left space-y-2">
+              <div className="flex justify-between text-[12.5px]">
+                <span className="text-[var(--color-ink-soft)]">Ton poids cible</span>
+                <span className="font-bold text-[var(--color-warn)] tabular-nums">
+                  {goalKg.toLocaleString("fr-FR")} kg
+                </span>
+              </div>
+              <div className="flex justify-between text-[12.5px]">
+                <span className="text-[var(--color-ink-soft)]">
+                  Plancher pour ta taille (IMC {SAFETY_CONFIG.body.bmiFloor.toLocaleString("fr-FR")})
+                </span>
+                <span className="font-bold text-[var(--color-forest)] tabular-nums">
+                  {assessment.bmiFloorKg.toLocaleString("fr-FR")} kg
+                </span>
+              </div>
             </div>
-          </div>
-          <DoctorAvatar
-            active
-            className="mt-5 w-full text-left"
-            message={`En tant que médecin, je te déconseille de dépasser ${MAX_LOSS_KG_PER_WEEK} kg par semaine : au-delà, ton corps puise dans le muscle et ton métabolisme ralentit. Ajustons ton délai ensemble, ton objectif reste le même.`}
-          />
+          ) : null}
+
+          <DoctorAvatar active className="mt-5 w-full text-left" message={intervention.message} />
         </div>
         <div className="px-6 pb-9 pt-2 space-y-2.5">
-          <PrimaryButton
-            label={`Ajuster à ${pace.recommendedWeeks} semaines (≈ ${HEALTHY_LOSS_KG_PER_WEEK.toLocaleString("fr-FR")} kg/sem)`}
-            onClick={acceptGuardianAdjustment}
-          />
+          {intervention.proposalLabel ? (
+            <PrimaryButton label={intervention.proposalLabel} onClick={acceptGuardianProposal} />
+          ) : null}
           <button
             type="button"
             onClick={() => setShowGuardian(false)}
             className="w-full py-3 rounded-2xl text-[13px] font-bold text-[var(--color-forest)] hover:bg-[var(--color-forest)]/5 transition-colors"
           >
-            Je revois ma durée moi-même
+            Je revois mon objectif moi-même
           </button>
         </div>
       </div>
@@ -630,7 +671,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               <div
                 className={cn(
                   "rounded-2xl border-2 p-4 flex items-center justify-between",
-                  pace.dangerous
+                  paceAlert
                     ? "bg-[var(--color-warn-bg)] border-[var(--color-warn-border)]"
                     : "bg-white border-black/[0.06]",
                 )}
@@ -641,17 +682,20 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 <span
                   className={cn(
                     "text-[18px] font-extrabold tabular-nums",
-                    pace.dangerous ? "text-[var(--color-warn)]" : "text-[var(--color-forest)]",
+                    paceAlert ? "text-[var(--color-warn)]" : "text-[var(--color-forest)]",
                   )}
                 >
                   {goalDeltaKg < 0 ? "−" : "+"}
-                  {pace.ratePerWeek.toLocaleString("fr-FR")} kg/sem
+                  {assessment.rateKgPerWeek.toLocaleString("fr-FR")} kg/sem
                 </span>
               </div>
 
               <p className="text-[11.5px] text-[var(--color-muted)] leading-relaxed px-1">
-                Rythme sain recommandé : 0,5 à {MAX_LOSS_KG_PER_WEEK} kg par semaine.
-                Au-delà, ton corps puise dans le muscle et ralentit ton métabolisme.
+                Rythme sain pour ton profil : jusqu&apos;à{" "}
+                {assessment.maxRateKgPerWeek.toLocaleString("fr-FR")} kg par semaine.
+                {goalDeltaKg < 0
+                  ? " Au-delà, ton corps puise dans le muscle et ralentit ton métabolisme."
+                  : " Au-delà, l'excédent est stocké en graisse plutôt qu'en muscle."}
               </p>
             </div>
           </StepShell>
@@ -982,7 +1026,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                       </p>
                       <p className="text-[11.5px] text-[var(--color-ink-soft)] leading-snug mt-0.5">
                         {config.weightGoalKg < config.weightKg
-                          ? `${assessGoalPace(config.weightKg, config.weightGoalKg, config.targetWeeks).ratePerWeek.toLocaleString("fr-FR")} kg/semaine sur ${config.targetWeeks} semaines — dans la zone saine (1 kg/sem max). Plus lent = plus durable.`
+                          ? `${validateGoal({ biologie: config.biologie, age: config.age, heightCm: config.heightCm, weightKg: config.weightKg, weightGoalKg: config.weightGoalKg, targetWeeks: config.targetWeeks }).rateKgPerWeek.toLocaleString("fr-FR")} kg/semaine sur ${config.targetWeeks} semaines — dans la zone saine pour ton profil. Plus lent = plus durable.`
                           : config.weightGoalKg > config.weightKg
                             ? "Un surplus léger et une prise progressive : du muscle, pas du gras stocké."
                             : "L'équilibre énergétique : la régularité compte plus que la vitesse."}

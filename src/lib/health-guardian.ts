@@ -1,42 +1,17 @@
 import type { UserConfig, Warning } from "@/types";
 import type { MetabolicProfile } from "@/lib/metabolic-engine";
+import { SAFETY_CONFIG } from "@/lib/safety/config";
 
 /* ------------------------------------------------------------------ */
-/* Gardien de Santé : détection des objectifs dangereux à             */
-/* l'onboarding + warnings quotidiens bienveillants sur le Dashboard. */
+/* Gardien de Santé : warnings quotidiens bienveillants du Dashboard. */
+/* La validation des objectifs (rythme, plancher IMC, mineurs) vit    */
+/* désormais dans safety/goal-guard.ts. Tous les seuils viennent de   */
+/* safety/config.ts — aucune valeur en dur ici.                       */
 /* ------------------------------------------------------------------ */
 
-/** Au-delà de 1 kg perdu par semaine, l'objectif est jugé dangereux. */
-export const MAX_LOSS_KG_PER_WEEK = 1;
-/** Rythme cible utilisé pour proposer une durée réaliste. */
-export const HEALTHY_LOSS_KG_PER_WEEK = 0.75;
-
-export const PLAN_WEEKS_MIN = 2;
-export const PLAN_WEEKS_MAX = 52;
-
-export interface GoalPace {
-  /** kg de variation par semaine (valeur absolue). */
-  ratePerWeek: number;
-  /** true si perte de poids > 1 kg/semaine. */
-  dangerous: boolean;
-  /** Durée saine proposée pour le même objectif de poids. */
-  recommendedWeeks: number;
-}
-
-export function assessGoalPace(weightKg: number, goalKg: number, weeks: number): GoalPace {
-  const deltaKg = goalKg - weightKg;
-  const ratePerWeek = weeks > 0 ? Math.abs(deltaKg) / weeks : 0;
-  const isLoss = deltaKg < 0;
-  const recommendedWeeks = Math.min(
-    PLAN_WEEKS_MAX,
-    Math.max(PLAN_WEEKS_MIN, Math.ceil(Math.abs(deltaKg) / HEALTHY_LOSS_KG_PER_WEEK)),
-  );
-  return {
-    ratePerWeek: Math.round(ratePerWeek * 100) / 100,
-    dangerous: isLoss && ratePerWeek > MAX_LOSS_KG_PER_WEEK,
-    recommendedWeeks,
-  };
-}
+/** Réexports : les seuils vivent dans safety/config.ts, source unique. */
+export const FIBER_TARGET_G = SAFETY_CONFIG.dailyIntake.fiberTargetG;
+export const CREATINE_SAFE_MAX_G = SAFETY_CONFIG.dailyIntake.creatineSafeMaxG;
 
 /* --------------------- Warnings quotidiens ------------------------ */
 
@@ -53,11 +28,6 @@ export interface DailyIntake {
   targetWaterMl: number;
 }
 
-export const FIBER_TARGET_G = 25;
-export const CREATINE_SAFE_MAX_G = 5;
-/** Sous ce ratio du métabolisme de base en fin de journée, on alerte. */
-const SEVERE_UNDEREATING_RATIO = 0.6;
-
 /**
  * Évalue la journée et produit les alertes bienveillantes du Dashboard.
  * Chaque règle respecte la config : on ne parle jamais d'un complément
@@ -69,6 +39,7 @@ export function evaluateDailyWarnings(
   intake: DailyIntake,
 ): Warning[] {
   const warnings: Warning[] = [];
+  const { severeUndereatingRatio, lowHydrationRatio } = SAFETY_CONFIG.dailyIntake;
 
   if (
     config.acceptedSupplements.includes("creatine") &&
@@ -84,7 +55,10 @@ export function evaluateDailyWarnings(
     });
   }
 
-  if (intake.caloriesConsumed > 0 && intake.caloriesConsumed < metabolics.mb * SEVERE_UNDEREATING_RATIO) {
+  if (
+    intake.caloriesConsumed > 0 &&
+    intake.caloriesConsumed < metabolics.mb * severeUndereatingRatio
+  ) {
     warnings.push({
       id: "g-sousalim",
       severity: "danger",
@@ -105,7 +79,7 @@ export function evaluateDailyWarnings(
     });
   }
 
-  if (intake.waterMl < intake.targetWaterMl * 0.5) {
+  if (intake.waterMl < intake.targetWaterMl * lowHydrationRatio) {
     warnings.push({
       id: "g-hydratation",
       severity: "warning",

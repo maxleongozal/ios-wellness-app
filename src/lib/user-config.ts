@@ -7,7 +7,7 @@ import type {
   UserProfile,
 } from "@/types";
 import { computeMetabolics } from "@/lib/metabolic-engine";
-import { assessGoalPace } from "@/lib/health-guardian";
+import { validateGoal } from "@/lib/safety";
 
 /* ------------------------------------------------------------------ */
 /* Moteur de personnalisation : les réponses du questionnaire         */
@@ -38,13 +38,26 @@ export function buildUserConfig(answers: OnboardingAnswers): UserConfig {
   // Le module "Suivi des compléments" n'existe que s'il y a quelque chose à suivre.
   if (acceptedSupplements.length > 0) visibleModules.push("suivi_supplements");
 
-  // Défense en profondeur : même si le flow laissait passer un rythme
-  // dangereux, la config finale est ramenée à une durée saine.
+  // Défense en profondeur : même si le flow laissait passer un objectif
+  // dangereux, la config finale est ramenée dans les limites de sécurité
+  // (rythme, plancher IMC, maintien avant 18 ans) — voir safety/goal-guard.
   const weightKg = clamp(answers.weightKg, WEIGHT_MIN, WEIGHT_MAX);
-  const weightGoalKg = clamp(answers.weightGoalKg ?? answers.weightKg, WEIGHT_MIN, WEIGHT_MAX);
-  const pace = assessGoalPace(weightKg, weightGoalKg, answers.targetWeeks ?? 0);
+  const requestedGoalKg = clamp(answers.weightGoalKg ?? answers.weightKg, WEIGHT_MIN, WEIGHT_MAX);
+  const age = clamp(answers.age, AGE_MIN, AGE_MAX);
+  const heightCm = clamp(answers.heightCm, HEIGHT_MIN, HEIGHT_MAX);
+  const assessment = validateGoal({
+    biologie: answers.biologie ?? "homme",
+    age,
+    heightCm,
+    weightKg,
+    weightGoalKg: requestedGoalKg,
+    targetWeeks: answers.targetWeeks ?? 0,
+  });
+  const weightGoalKg = assessment.safeGoalKg;
   const targetWeeks =
-    answers.targetWeeks !== null && !pace.dangerous ? answers.targetWeeks : pace.recommendedWeeks;
+    answers.targetWeeks !== null && assessment.ok
+      ? answers.targetWeeks
+      : assessment.recommendedWeeks;
 
   return {
     userName: answers.userName.trim() || "Athlète",
@@ -53,8 +66,8 @@ export function buildUserConfig(answers: OnboardingAnswers): UserConfig {
     stanceSupplements: stance,
     acceptedSupplements,
     dietType: "standard",
-    age: clamp(answers.age, AGE_MIN, AGE_MAX),
-    heightCm: clamp(answers.heightCm, HEIGHT_MIN, HEIGHT_MAX),
+    age,
+    heightCm,
     weightKg,
     weightGoalKg,
     targetWeeks,

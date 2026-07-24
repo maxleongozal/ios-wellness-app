@@ -19,6 +19,8 @@ import {
 } from "@/lib/user-config";
 import { computeMetabolics } from "@/lib/metabolic-engine";
 import { evaluateDailyWarnings } from "@/lib/health-guardian";
+import { behaviorDaysFromGamification, detectBehaviorSignals } from "@/lib/safety";
+import { loadGamificationState } from "@/lib/gamification";
 import { getDoctorAdvice } from "@/lib/doctor-engine";
 import { dailyTracking, exercises as seedExercises, meals, userProfile } from "@/lib/data";
 import type { ScreenId, UserConfig } from "@/types";
@@ -54,10 +56,17 @@ export default function HomePage() {
       waterMl,
       targetWaterMl: metabolics.waterMl,
     };
+    // Veille comportementale (safety/behavior-watch) : interventions
+    // explicatives du Dr Sane, affichées comme les autres warnings.
+    const behaviorWarnings = detectBehaviorSignals({
+      days: behaviorDaysFromGamification(loadGamificationState()),
+      today: new Date().toLocaleDateString("sv-SE"),
+    }).map((i) => ({ id: i.id, title: i.title, message: i.message, severity: i.severity }));
     return {
-      activeWarnings: evaluateDailyWarnings(config, metabolics, dailyLog).filter(
-        (w) => !dismissed.includes(w.id),
-      ),
+      activeWarnings: [
+        ...evaluateDailyWarnings(config, metabolics, dailyLog),
+        ...behaviorWarnings,
+      ].filter((w) => !dismissed.includes(w.id)),
       doctorAdvice: getDoctorAdvice(config, dailyLog),
     };
   }, [config, waterMl, dismissed]);
@@ -126,7 +135,7 @@ export default function HomePage() {
               {screen === "workout" && (
                 <WorkoutScreen profile={profile} exercises={exercises} onToggle={toggleExercise} />
               )}
-              {screen === "profile" && <ProfileScreen profile={profile} />}
+              {screen === "profile" && <ProfileScreen profile={profile} config={config} />}
             </div>
 
             <BottomNav active={screen} onChange={setScreen} />
