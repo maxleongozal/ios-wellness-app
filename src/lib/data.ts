@@ -51,6 +51,13 @@ export const exercises: Exercise[] = [
   { id: "e5", name: "Curl biceps", sets: 3, reps: "12", muscle: "Biceps", done: false },
 ];
 
+// Journal nutritionnel du jour (mock) — consommé par le Gardien de Santé
+// pour générer les warnings quotidiens du Dashboard.
+export const dailyTracking = {
+  fiberG: 14,
+  creatineTakenG: 12,
+};
+
 export const warnings: Warning[] = [
   {
     id: "w1",

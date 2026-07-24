@@ -16,14 +16,11 @@ import {
   getWorkoutPlan,
   loadUserConfig,
   saveUserConfig,
-  supplementsAllowed,
 } from "@/lib/user-config";
-import {
-  exercises as seedExercises,
-  meals,
-  userProfile,
-  warnings as seedWarnings,
-} from "@/lib/data";
+import { computeMetabolics } from "@/lib/metabolic-engine";
+import { evaluateDailyWarnings } from "@/lib/health-guardian";
+import { getDoctorAdvice } from "@/lib/doctor-engine";
+import { dailyTracking, exercises as seedExercises, meals, userProfile } from "@/lib/data";
 import type { ScreenId, UserConfig } from "@/types";
 
 export default function HomePage() {
@@ -45,16 +42,25 @@ export default function HomePage() {
     [config],
   );
 
-  const activeWarnings = useMemo(
-    () =>
-      seedWarnings.filter((w) => {
-        if (dismissed.includes(w.id)) return false;
-        // stance 'against' → aucun contenu compléments, alertes incluses.
-        if (w.id === "w1" && !supplementsAllowed(config)) return false;
-        return true;
-      }),
-    [dismissed, config],
-  );
+  // Warnings quotidiens (Gardien de Santé) + intervention du Dr. Sane :
+  // tous deux lisent le même journal du jour, ils ne se contredisent jamais.
+  const { activeWarnings, doctorAdvice } = useMemo(() => {
+    if (!config) return { activeWarnings: [], doctorAdvice: null };
+    const metabolics = computeMetabolics(config);
+    const dailyLog = {
+      caloriesConsumed: meals.reduce((sum, m) => sum + m.calories, 0),
+      fiberG: dailyTracking.fiberG,
+      creatineTakenG: dailyTracking.creatineTakenG,
+      waterMl,
+      targetWaterMl: metabolics.waterMl,
+    };
+    return {
+      activeWarnings: evaluateDailyWarnings(config, metabolics, dailyLog).filter(
+        (w) => !dismissed.includes(w.id),
+      ),
+      doctorAdvice: getDoctorAdvice(config, dailyLog),
+    };
+  }, [config, waterMl, dismissed]);
 
   const handleOnboardingComplete = (c: UserConfig) => {
     saveUserConfig(c);
@@ -111,6 +117,7 @@ export default function HomePage() {
                   onAddWater={() => setWaterMl((v) => Math.min(profile.targetWaterMl, v + 250))}
                   warnings={activeWarnings}
                   onDismissWarning={(id) => setDismissed((d) => [...d, id])}
+                  doctorAdvice={doctorAdvice}
                 />
               )}
               {screen === "nutrition" && (

@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronRight, Dumbbell, Droplets, Flame, HeartPulse, Pill } from "lucide-react";
-import type { Meal, UserConfig, UserProfile, Warning } from "@/types";
+import { Check, ChevronRight, Dumbbell, Droplets, Flame, HeartPulse, Pill, Stethoscope } from "lucide-react";
+import type { Meal, SupplementId, UserConfig, UserProfile, Warning } from "@/types";
+import type { DoctorAdvice } from "@/lib/doctor-engine";
+import { getSupplement } from "@/lib/supplements";
 import { ScreenHeader } from "@/components/screen-header";
 import { WarningBanner } from "@/components/warning-banner";
+import { DoctorAvatar } from "@/components/doctor-avatar";
 import { cn } from "@/lib/utils";
 
 interface HomeScreenProps {
@@ -15,18 +18,29 @@ interface HomeScreenProps {
   onAddWater: () => void;
   warnings: Warning[];
   onDismissWarning: (id: string) => void;
+  doctorAdvice?: DoctorAdvice | null;
 }
 
-const SUPPLEMENTS = [
-  { id: "s1", name: "Créatine", dose: "5 g" },
-  { id: "s2", name: "Whey", dose: "30 g" },
-  { id: "s3", name: "Oméga-3", dose: "1 gélule" },
-];
+function DoctorWidget({ advice }: { advice: DoctorAdvice }) {
+  return (
+    <div className="bg-[var(--color-parchment)] rounded-2xl p-4 border border-[var(--color-forest)]/10">
+      <div className="flex items-center justify-between">
+        <p className="text-[14px] font-extrabold text-[var(--color-forest-dark)]">
+          Le mot du médecin
+        </p>
+        <Stethoscope className="w-4 h-4 text-[var(--color-forest)]" strokeWidth={2.4} />
+      </div>
+      <DoctorAvatar className="mt-3" message={advice.message} severity={advice.severity} />
+    </div>
+  );
+}
 
-function SupplementsCard() {
-  const [taken, setTaken] = useState<string[]>(["s1"]);
+function SupplementsCard({ ids }: { ids: SupplementId[] }) {
+  const [taken, setTaken] = useState<string[]>([]);
   const toggle = (id: string) =>
     setTaken((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
+  // Seuls les compléments explicitement acceptés à l'onboarding sont affichés.
+  const items = ids.map(getSupplement);
 
   return (
     <div className="bg-[var(--color-parchment)] rounded-2xl p-4 border border-[var(--color-forest)]/10">
@@ -37,7 +51,7 @@ function SupplementsCard() {
         <Pill className="w-4 h-4 text-[var(--color-forest)]" strokeWidth={2.4} />
       </div>
       <ul className="mt-3 space-y-2">
-        {SUPPLEMENTS.map((s) => {
+        {items.map((s) => {
           const done = taken.includes(s.id);
           return (
             <li key={s.id}>
@@ -126,6 +140,7 @@ export function HomeScreen({
   onAddWater,
   warnings,
   onDismissWarning,
+  doctorAdvice,
 }: HomeScreenProps) {
   const showSupplements = config?.uiTheme.visibleModules.includes("suivi_supplements") ?? false;
   const consumedCalories = meals.reduce((sum, m) => sum + m.calories, 0);
@@ -146,7 +161,9 @@ export function HomeScreen({
       <ScreenHeader greeting={`Bonjour ${profile.name} !`} />
 
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-32 space-y-3">
-        {warnings.slice(0, 1).map((w) => (
+        {doctorAdvice ? <DoctorWidget advice={doctorAdvice} /> : null}
+
+        {warnings.slice(0, 2).map((w) => (
           <WarningBanner key={w.id} warning={w} onDismiss={onDismissWarning} />
         ))}
 
@@ -264,7 +281,9 @@ export function HomeScreen({
           </div>
         </div>
 
-        {showSupplements ? <SupplementsCard /> : null}
+        {showSupplements && config ? (
+          <SupplementsCard ids={config.acceptedSupplements} />
+        ) : null}
 
         {/* Bien-être */}
         <button

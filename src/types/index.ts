@@ -6,6 +6,15 @@ export type Biologie = "homme" | "femme";
 export type Objectif = "perte_poids" | "prise_masse" | "endurance" | "bien_etre";
 export type StanceSupplements = "open" | "against" | "hesitant";
 export type DietType = "standard" | "vegan" | "keto";
+export type ActivityLevel = "sedentaire" | "leger" | "modere" | "tres_actif";
+export type SleepRange = "moins_6h" | "6_8h" | "8h_plus";
+
+export type SupplementId =
+  | "whey"
+  | "creatine"
+  | "omega3"
+  | "multivitamines"
+  | "electrolytes";
 
 export type ModuleId =
   | "dashboard"
@@ -25,7 +34,19 @@ export interface UserConfig {
   biologie: Biologie;
   objectif: Objectif;
   stanceSupplements: StanceSupplements;
+  /** Liste exacte des compléments acceptés — seuls eux apparaissent sur le Dashboard. */
+  acceptedSupplements: SupplementId[];
   dietType: DietType;
+  // Données physiologiques pour le futur moteur de calcul métabolique.
+  age: number;
+  heightCm: number;
+  weightKg: number;
+  weightGoalKg: number;
+  /** Durée du plan en semaines — validée par le Gardien de Santé (≤ 1 kg/sem). */
+  targetWeeks: number;
+  activityLevel: ActivityLevel;
+  sleep: SleepRange;
+  restrictiveDietHistory: boolean;
   uiTheme: UiTheme;
 }
 
@@ -33,7 +54,16 @@ export interface OnboardingAnswers {
   userName: string;
   biologie: Biologie | null;
   objectif: Objectif | null;
-  stanceSupplements: StanceSupplements | null;
+  /** null = pas encore répondu ; [] = « aucun complément » choisi explicitement. */
+  acceptedSupplements: SupplementId[] | null;
+  age: number;
+  heightCm: number;
+  weightKg: number;
+  weightGoalKg: number | null;
+  targetWeeks: number | null;
+  activityLevel: ActivityLevel | null;
+  sleep: SleepRange | null;
+  restrictiveDietHistory: boolean | null;
 }
 
 export type MealCategory = "petit-dejeuner" | "dejeuner" | "diner" | "snacks";

@@ -6,6 +6,8 @@ import type {
   UserConfig,
   UserProfile,
 } from "@/types";
+import { computeMetabolics } from "@/lib/metabolic-engine";
+import { assessGoalPace } from "@/lib/health-guardian";
 
 /* ------------------------------------------------------------------ */
 /* Moteur de personnalisation : les réponses du questionnaire         */
@@ -21,7 +23,10 @@ const ACCENT_BY_OBJECTIF: Record<Objectif, string> = {
 
 export function buildUserConfig(answers: OnboardingAnswers): UserConfig {
   const objectif = answers.objectif ?? "bien_etre";
-  const stance = answers.stanceSupplements ?? "hesitant";
+  const acceptedSupplements = answers.acceptedSupplements ?? [];
+  // La position globale est dérivée de la sélection au cas par cas :
+  // au moins un complément accepté → 'open', aucun → 'against'.
+  const stance = acceptedSupplements.length > 0 ? "open" : "against";
 
   const visibleModules: ModuleId[] = [
     "dashboard",
@@ -30,21 +35,57 @@ export function buildUserConfig(answers: OnboardingAnswers): UserConfig {
     "hydratation",
     "bien_etre",
   ];
-  // stance 'open' → module dédié "Suivi des compléments" sur le Dashboard.
-  // stance 'against' → aucun module ni conseil compléments, nulle part.
-  if (stance === "open") visibleModules.push("suivi_supplements");
+  // Le module "Suivi des compléments" n'existe que s'il y a quelque chose à suivre.
+  if (acceptedSupplements.length > 0) visibleModules.push("suivi_supplements");
+
+  // Défense en profondeur : même si le flow laissait passer un rythme
+  // dangereux, la config finale est ramenée à une durée saine.
+  const weightKg = clamp(answers.weightKg, WEIGHT_MIN, WEIGHT_MAX);
+  const weightGoalKg = clamp(answers.weightGoalKg ?? answers.weightKg, WEIGHT_MIN, WEIGHT_MAX);
+  const pace = assessGoalPace(weightKg, weightGoalKg, answers.targetWeeks ?? 0);
+  const targetWeeks =
+    answers.targetWeeks !== null && !pace.dangerous ? answers.targetWeeks : pace.recommendedWeeks;
 
   return {
     userName: answers.userName.trim() || "Athlète",
     biologie: answers.biologie ?? "homme",
     objectif,
     stanceSupplements: stance,
+    acceptedSupplements,
     dietType: "standard",
+    age: clamp(answers.age, AGE_MIN, AGE_MAX),
+    heightCm: clamp(answers.heightCm, HEIGHT_MIN, HEIGHT_MAX),
+    weightKg,
+    weightGoalKg,
+    targetWeeks,
+    activityLevel: answers.activityLevel ?? "leger",
+    sleep: answers.sleep ?? "6_8h",
+    restrictiveDietHistory: answers.restrictiveDietHistory ?? false,
     uiTheme: {
       accentColor: ACCENT_BY_OBJECTIF[objectif],
       visibleModules,
     },
   };
+}
+
+/* --------------- Bornes physiologiques & validation --------------- */
+
+export const AGE_MIN = 13;
+export const AGE_MAX = 90;
+export const HEIGHT_MIN = 130;
+export const HEIGHT_MAX = 220;
+export const WEIGHT_MIN = 35;
+export const WEIGHT_MAX = 200;
+// Au-delà de ±40 % du poids actuel, l'objectif est refusé comme irréaliste.
+export const GOAL_MAX_DELTA_RATIO = 0.4;
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(v * 10) / 10));
+}
+
+export function isGoalWeightRealistic(currentKg: number, goalKg: number): boolean {
+  if (goalKg < WEIGHT_MIN || goalKg > WEIGHT_MAX) return false;
+  return Math.abs(goalKg - currentKg) / currentKg <= GOAL_MAX_DELTA_RATIO;
 }
 
 export function supplementsAllowed(config: UserConfig | null): boolean {
@@ -119,20 +160,21 @@ export function getWorkoutPlan(objectif: Objectif): WorkoutPlan {
 
 export function deriveProfile(base: UserProfile, config: UserConfig): UserProfile {
   const plan = getWorkoutPlan(config.objectif);
-
-  let targetCalories = base.targetCalories;
-  let targetMacros = base.targetMacros;
-  // Ratio standard féminin pour une perte de poids.
-  if (config.biologie === "femme" && config.objectif === "perte_poids") {
-    targetCalories = 1800;
-    targetMacros = { protein: 115, carbs: 160, fat: 62 };
-  }
+  // Plus aucun chiffre arbitraire : calories, macros et hydratation
+  // sortent du moteur métabolique (Mifflin-St Jeor + garde-fous).
+  const metabolics = computeMetabolics(config);
 
   return {
     ...base,
     name: config.userName,
-    targetCalories,
-    targetMacros,
+    age: config.age,
+    height: config.heightCm,
+    weightCurrent: config.weightKg,
+    weightStart: config.weightKg,
+    weightGoal: config.weightGoalKg,
+    targetCalories: metabolics.targetCalories,
+    targetMacros: metabolics.macros,
+    targetWaterMl: metabolics.waterMl,
     workoutTitle: plan.title,
     workoutFocus: plan.focus,
     workoutDurationMin: plan.durationMin,
@@ -157,6 +199,18 @@ export function loadUserConfig(): UserConfig | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as UserConfig;
     if (!parsed || typeof parsed.userName !== "string" || !parsed.uiTheme) return null;
+    // Config d'une version antérieure (sans physio ou sans sélection
+    // de compléments au cas par cas) → re-onboarding.
+    if (
+      typeof parsed.age !== "number" ||
+      typeof parsed.heightCm !== "number" ||
+      typeof parsed.weightKg !== "number" ||
+      typeof parsed.weightGoalKg !== "number" ||
+      typeof parsed.targetWeeks !== "number" ||
+      !Array.isArray(parsed.acceptedSupplements)
+    ) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;
